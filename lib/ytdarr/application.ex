@@ -99,8 +99,11 @@ defmodule Ytdarr.Application do
 
   defp schedule_initial_batch_sync do
     # Schedule the first batch sync with a 2-minute delay to let the app fully boot
-    %{}
+    %{"initial_sync" => true}
     |> Ytdarr.ObanWorkers.BatchSyncWorker.new(schedule_in: 120)
     |> Oban.insert()
+
+    # Replace any successor queued by the previous interval before this boot.
+    Ytdarr.ObanWorkers.BatchSyncWorker.reschedule_sync()
   end
 end

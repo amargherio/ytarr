@@ -10,6 +10,18 @@ defmodule YtdarrWeb.SettingsLive do
   alias Ytdarr.Services.YouTube.QuotaTracker
   alias Ytdarr.Settings.{MediaRootFolder, QualityProfile, YtDlpParamSet}
 
+  @sync_interval_presets [
+    {"1 hour", 60},
+    {"6 hours", 360},
+    {"12 hours", 720},
+    {"24 hours", 1_440}
+  ]
+  @sync_interval_options Enum.map(@sync_interval_presets, fn {label, minutes} ->
+                           {label, Integer.to_string(minutes)}
+                         end) ++ [{"Other", "other"}]
+  @sync_interval_minutes_by_preset Map.new(@sync_interval_presets, fn {_label, minutes} ->
+                                     {Integer.to_string(minutes), minutes}
+                                   end)
   @categories [
     %{id: :media, label: "Media Management", icon: "hero-folder"},
     %{id: :profiles, label: "Profiles", icon: "hero-adjustments-horizontal"},
@@ -138,7 +150,7 @@ defmodule YtdarrWeb.SettingsLive do
   end
 
   def handle_event("save-general", %{"general" => params}, socket) do
-    case parse_positive_integer(params["sync_interval_minutes"]) do
+    case sync_interval_from_params(params) do
       {:ok, minutes} ->
         case Settings.save_settings([{"sync_interval_minutes", minutes}]) do
           {:ok, _} ->
@@ -146,7 +158,7 @@ defmodule YtdarrWeb.SettingsLive do
              socket
              |> put_flash(
                :info,
-               "Sync interval saved. It applies when the next batch sync schedules its successor."
+               "Sync interval saved. The next automatic refresh was rescheduled."
              )
              |> assign(:dirty_section, nil)
              |> load_data()}
@@ -155,8 +167,13 @@ defmodule YtdarrWeb.SettingsLive do
             {:noreply, put_flash(socket, :error, operation_error("save sync interval", reason))}
         end
 
-      {:error, :not_positive_integer} ->
-        {:noreply, put_flash(socket, :error, "Sync interval must be a positive whole number.")}
+      {:error, :invalid_sync_interval} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Choose a preset or enter a positive duration such as 12m, 36h, or 7d."
+         )}
     end
   end
 
@@ -457,17 +474,15 @@ defmodule YtdarrWeb.SettingsLive do
       )
 
     general_form =
-      to_form(
-        %{
-          "sync_interval_minutes" => setting_states["sync_interval_minutes"].value
-        },
-        as: :general
-      )
+      Settings.sync_interval_minutes()
+      |> sync_interval_form_values()
+      |> to_form(as: :general)
 
     socket
     |> assign(:media_form, media_form)
     |> assign(:youtube_form, youtube_form)
     |> assign(:general_form, general_form)
+    |> assign(:sync_interval_options, @sync_interval_options)
     |> assign(:profiles, Enum.sort_by(cfg.profiles, &{!&1.is_default, String.downcase(&1.name)}))
     |> assign(
       :param_sets,
@@ -641,16 +656,39 @@ defmodule YtdarrWeb.SettingsLive do
 
   defp ensure_region(_value), do: {:error, :region_required}
 
-  defp parse_positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp sync_interval_from_params(%{"sync_interval_preset" => "other"} = params) do
+    Settings.parse_sync_interval(params["sync_interval_custom"])
+  end
 
-  defp parse_positive_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 -> {:ok, integer}
-      _ -> {:error, :not_positive_integer}
+  defp sync_interval_from_params(%{"sync_interval_preset" => preset}) when is_binary(preset) do
+    case Map.fetch(@sync_interval_minutes_by_preset, preset) do
+      {:ok, minutes} -> {:ok, minutes}
+      :error -> {:error, :invalid_sync_interval}
     end
   end
 
-  defp parse_positive_integer(_value), do: {:error, :not_positive_integer}
+  defp sync_interval_from_params(_params), do: {:error, :invalid_sync_interval}
+
+  defp sync_interval_form_values(minutes) do
+    case Enum.find(@sync_interval_presets, fn {_label, preset} -> preset == minutes end) do
+      {_label, preset} ->
+        %{"sync_interval_preset" => Integer.to_string(preset), "sync_interval_custom" => ""}
+
+      nil ->
+        %{
+          "sync_interval_preset" => "other",
+          "sync_interval_custom" => format_sync_interval(minutes)
+        }
+    end
+  end
+
+  defp format_sync_interval(minutes) when rem(minutes, 1_440) == 0,
+    do: "#{div(minutes, 1_440)}d"
+
+  defp format_sync_interval(minutes) when rem(minutes, 60) == 0,
+    do: "#{div(minutes, 60)}h"
+
+  defp format_sync_interval(minutes), do: "#{minutes}m"
 
   defp truthy?(value), do: value in [true, "true", "on", "1", 1]
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

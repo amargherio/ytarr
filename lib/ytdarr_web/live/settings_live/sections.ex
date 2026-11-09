@@ -738,17 +738,32 @@ defmodule YtdarrWeb.SettingsLive.Sections do
       <.setting_row
         id="general-sync-interval"
         label="Automatic sync interval"
-        description="Minutes between scheduled synchronization runs for monitored channels and playlists."
+        description="Choose a refresh interval for monitored channels and playlists, or enter a custom duration in minutes, hours, or days."
         effect={@setting_effects["sync_interval_minutes"]}
       >
         <:control>
           <.input
-            field={@general_form[:sync_interval_minutes]}
-            type="number"
-            label="Interval in minutes"
-            min="1"
-            step="1"
+            field={@general_form[:sync_interval_preset]}
+            type="select"
+            label="Refresh interval"
+            options={@sync_interval_options}
           />
+          <.input
+            :if={@general_form[:sync_interval_preset].value == "other"}
+            field={@general_form[:sync_interval_custom]}
+            type="text"
+            label="Custom interval"
+            placeholder="12m, 36h, or 7d"
+            maxlength="12"
+            pattern="[0-9]+[mhdMHD]"
+            class="mt-3 w-full input"
+          />
+          <p
+            :if={@general_form[:sync_interval_preset].value == "other"}
+            class="mt-2 text-sm text-base-content/60"
+          >
+            Use a positive whole number followed by m (minutes), h (hours), or d (days).
+          </p>
         </:control>
       </.setting_row>
     </.form>

@@ -293,15 +293,41 @@ defmodule YtdarrWeb.SettingsLiveTest do
     assert Settings.get_yt_dlp_param_set!(param_set.id).is_default
   end
 
-  test "saves the automatic sync interval", %{conn: conn} do
+  test "offers hourly presets with a 24-hour default", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/settings?category=general")
 
+    assert has_element?(view, "#general_sync_interval_preset option[value='1440'][selected]")
+    assert has_element?(view, "#general-sync-interval")
+
     view
-    |> form("#general-form", general: %{sync_interval_minutes: 45})
+    |> form("#general-form", general: %{sync_interval_preset: "360"})
     |> render_submit()
 
-    assert Settings.get_setting_value("sync_interval_minutes") == 45
-    assert has_element?(view, "#general-sync-interval")
+    assert Settings.get_setting_value("sync_interval_minutes") == 360
+  end
+
+  test "saves custom minute, hour, and day intervals and reloads the value", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings?category=general")
+
+    for {interval, minutes} <- [{"12m", 12}, {"36h", 2_160}, {"7d", 10_080}] do
+      view
+      |> form("#general-form", general: %{sync_interval_preset: "other"})
+      |> render_change()
+
+      assert has_element?(view, "#general_sync_interval_custom")
+
+      view
+      |> form("#general-form",
+        general: %{sync_interval_preset: "other", sync_interval_custom: interval}
+      )
+      |> render_submit()
+
+      assert Settings.get_setting_value("sync_interval_minutes") == minutes
+      assert has_element?(view, "#general_sync_interval_preset option[value='other'][selected]")
+    end
+
+    {:ok, reloaded_view, _html} = live(conn, ~p"/settings?category=general")
+    assert has_element?(reloaded_view, "#general_sync_interval_custom[value='7d']")
   end
 
   test "saves a browser-managed YouTube API key", %{conn: conn} do
@@ -527,10 +553,12 @@ defmodule YtdarrWeb.SettingsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/settings?category=general")
 
     view
-    |> form("#general-form", general: %{sync_interval_minutes: 0})
+    |> form("#general-form",
+      general: %{sync_interval_preset: "other", sync_interval_custom: "0m"}
+    )
     |> render_submit()
 
-    assert render(view) =~ "Sync interval must be a positive whole number."
+    assert render(view) =~ "Choose a preset or enter a positive duration"
     assert Settings.get_setting_value("sync_interval_minutes") == 45
   end
 

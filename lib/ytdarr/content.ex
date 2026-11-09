@@ -477,7 +477,7 @@ defmodule Ytdarr.Content do
   defp sync_playlists_and_link_videos(db_channel, channel_id, video_cache, opts) do
     case Client.get_channel_playlists(channel_id, opts) do
       {:ok, yt_playlists} ->
-        sync_interval = Ytdarr.Settings.get_setting_value("sync_interval_minutes", 60)
+        sync_interval = Ytdarr.Settings.sync_interval_minutes()
 
         Enum.reduce(yt_playlists, video_cache, fn yt_playlist, acc_cache ->
           Logger.info("[Content] Processing playlist #{yt_playlist.id} - #{yt_playlist.title}")

@@ -27,7 +27,7 @@ The base configuration supplies `default: 10`, `video_downloader: 2`, `video_imp
 
 ## Scheduling metadata sync
 
-At application boot, Ytdarr queues the first batch-sync job for **120 seconds** later. After each batch run, it schedules its successor according to `sync_interval_minutes`, default 60 minutes. A change to that setting takes effect when the next batch job schedules its successor; it does not alter a job already waiting. See [Settings](../settings/#automatic-metadata-sync).
+At application boot, Ytdarr queues the first batch-sync job for **120 seconds** later. After each batch run, it schedules its successor according to `sync_interval_minutes`, default 24 hours. Saving the setting replaces the pending automatic run with a new one using the updated interval; a running sync is allowed to finish. See [Settings](../settings/#automatic-metadata-sync).
 
 Batch sync operates on monitored channels and playlists. It estimates quota before work, batches metadata calls where possible, and performs incremental checks using `last_checked_at` where applicable. A manual single-content sync uses `sync_worker`, not the batch scheduler.
 
@@ -55,5 +55,5 @@ Google documents its default quota reset in Pacific Time. Ytdarr’s bookkeeping
 
 2. If quota is exhausted, wait for the provider reset and review Google Cloud quota; do not reset internal bookkeeping to manufacture provider capacity.
 3. If downloads remain pending, inspect `video_downloader` work in `/oban`, yt-dlp availability, filesystem health, and queue capacity. A stored `rate_limit_kbps` or parameter-set `concurrency` will not change worker capacity.
-4. If a batch cycle seems slow, confirm monitored content and the scheduled job. Changing `sync_interval_minutes` affects only the next self-scheduled cycle.
+4. If a batch cycle seems slow, confirm monitored content and the scheduled job. Changing `sync_interval_minutes` immediately reschedules the pending automatic cycle; the next cycle uses the saved interval.
 5. If permission normalization reports failures, correct filesystem ownership/modes and queue **Apply to existing media** again; that worker has one attempt and skips symlinks.

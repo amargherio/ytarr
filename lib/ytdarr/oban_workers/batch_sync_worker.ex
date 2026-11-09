@@ -2,7 +2,7 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorker do
   @moduledoc """
   Oban worker for scheduled batch synchronization of all monitored content.
 
-  Runs on a configurable interval (default 60 minutes) and syncs every
+  Runs on a configurable interval (default 24 hours) and syncs every
   monitored channel and playlist in a single job, using batched and
   incremental API calls to minimize YouTube quota consumption.
 
@@ -40,9 +40,11 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorker do
   use Oban.Worker,
     queue: :batch_sync,
     max_attempts: 3,
-    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable, :suspended]]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
-  alias Ytdarr.Content
+  import Ecto.Query, only: [from: 2]
+
+  alias Ytdarr.{Content, Repo, Settings}
   alias Ytdarr.Services.YouTube.Client
   alias Ytdarr.Services.YouTube.QuotaTracker
 
@@ -52,13 +54,26 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorker do
   Schedules a batch sync job to run at the configured interval.
   """
   def schedule_next_sync do
-    default_interval = Ytdarr.Settings.Catalog.default_value("sync_interval_minutes")
-    raw = Ytdarr.Settings.get_setting_value("sync_interval_minutes", default_interval)
-    interval_minutes = to_positive_integer(raw, default_interval)
-
     %{}
-    |> __MODULE__.new(schedule_in: {interval_minutes, :minutes})
+    |> __MODULE__.new(schedule_in: {Settings.sync_interval_minutes(), :minutes})
     |> Oban.insert()
+  end
+
+  @doc "Replaces the pending automatic sync with one using the current setting."
+  def reschedule_sync do
+    scheduled_automatic_syncs()
+    |> Enum.each(&Oban.cancel_job/1)
+
+    schedule_next_sync()
+  end
+
+  defp scheduled_automatic_syncs do
+    Repo.all(
+      from job in Oban.Job,
+        where: job.worker == "Ytdarr.ObanWorkers.BatchSyncWorker",
+        where: job.state == "scheduled"
+    )
+    |> Enum.filter(&(map_size(&1.args) == 0))
   end
 
   @impl Oban.Worker
@@ -100,17 +115,6 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorker do
 
     result
   end
-
-  defp to_positive_integer(v, _default) when is_integer(v) and v > 0, do: v
-
-  defp to_positive_integer(v, default) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} when n > 0 -> n
-      _ -> default
-    end
-  end
-
-  defp to_positive_integer(_, default), do: default
 
   defp sync_monitored_channels(force_full_sync) do
     channels = Content.list_monitored_channels!()

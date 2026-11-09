@@ -119,7 +119,7 @@ defmodule Ytdarr.SettingsTest do
     test "returns correct defaults" do
       assert Catalog.default_value("youtube.region") == "US"
       assert Catalog.default_value("media.move_strategy") == "hardlink"
-      assert Catalog.default_value("sync_interval_minutes") == 60
+      assert Catalog.default_value("sync_interval_minutes") == 1_440
       assert Catalog.default_value("media.clean_orphans") == true
       assert Catalog.default_value("youtube.primary_api_key") == nil
     end
@@ -493,9 +493,35 @@ defmodule Ytdarr.SettingsTest do
   # ---------------------------------------------------------------------------
 
   describe "sync_interval_minutes key" do
-    test "string key is used consistently — stored value is returned" do
-      {:ok, _} = Settings.put_setting("sync_interval_minutes", 30)
-      assert Settings.get_setting_value("sync_interval_minutes", 60) == 30
+    test "defaults to 24 hours when no setting is stored" do
+      assert Settings.sync_interval_minutes() == 1_440
+    end
+
+    test "accepts minute, hour, and day duration suffixes" do
+      assert Enum.map(["12m", "24h", "36h", "1d", "7d"], &Settings.parse_sync_interval/1) ==
+               [{:ok, 12}, {:ok, 1_440}, {:ok, 2_160}, {:ok, 1_440}, {:ok, 10_080}]
+    end
+
+    test "trims whitespace and accepts uppercase duration suffixes" do
+      assert Settings.parse_sync_interval(" 12M ") == {:ok, 12}
+      assert Settings.parse_sync_interval("2D") == {:ok, 2_880}
+    end
+
+    test "rejects malformed, zero, negative, fractional, and overflowing durations" do
+      for invalid <- ["", "12", "0m", "-12h", "1.5d", "12w", "9999999999d"] do
+        assert Settings.parse_sync_interval(invalid) == {:error, :invalid_sync_interval}
+      end
+    end
+
+    test "persists durations as minutes and keeps the previous value on invalid input" do
+      assert {:ok, _} = Settings.put_setting("sync_interval_minutes", "12m")
+      assert Settings.get_setting_value("sync_interval_minutes") == 12
+      assert Settings.sync_interval_minutes() == 12
+
+      assert {:error, :invalid_sync_interval} =
+               Settings.put_setting("sync_interval_minutes", "0h")
+
+      assert Settings.get_setting_value("sync_interval_minutes") == 12
     end
   end
 

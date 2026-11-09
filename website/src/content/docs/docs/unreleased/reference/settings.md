@@ -99,10 +99,10 @@ New writes use the saved ownership/mode policy. Existing files do not change whe
 ### `sync_interval_minutes`
 
 <dl>
-  <dt>Type and default</dt><dd>Positive integer; <code>60</code> minutes.</dd>
-  <dt>Precedence</dt><dd>Saved database value, otherwise <code>60</code>; no environment override.</dd>
-  <dt>Allowed input</dt><dd>A whole number greater than zero.</dd>
-  <dt>Scope and timing</dt><dd>SQLite application setting; applies when the current batch-sync job schedules its successor. Changing it does not rewrite a job that is already scheduled.</dd>
+  <dt>Type and default</dt><dd>Positive integer; <code>1,440</code> minutes (24 hours).</dd>
+  <dt>Precedence</dt><dd>Saved database value, otherwise <code>1,440</code>; no environment override.</dd>
+  <dt>Allowed input</dt><dd>The Settings screen offers 1, 6, 12, or 24 hours, or a positive whole number followed by <code>m</code> (minutes), <code>h</code> (hours), or <code>d</code> (days), such as <code>12m</code> or <code>7d</code>.</dd>
+  <dt>Scope and timing</dt><dd>SQLite application setting; saving cancels and replaces the pending automatic batch sync, then subsequent runs use the configured interval. The initial sync still runs 120 seconds after boot.</dd>
   <dt>Secret?</dt><dd>No.</dd>
 </dl>
 

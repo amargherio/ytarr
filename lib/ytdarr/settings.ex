@@ -111,10 +111,62 @@ defmodule Ytdarr.Settings do
   @doc """
   Put a setting value (creates or updates).
   """
-  def put_setting(key, value, type \\ nil) when is_binary(key) do
+  def put_setting(key, value, type \\ nil)
+
+  def put_setting("sync_interval_minutes" = key, value, _type) do
+    with {:ok, minutes} <- parse_sync_interval(value) do
+      case Ytdarr.Repo.transaction(fn ->
+             with {:ok, setting} <-
+                    upsert_app_setting(%{key: key, value: wrap_value(minutes), type: "integer"}),
+                  {:ok, _job} <- Ytdarr.ObanWorkers.BatchSyncWorker.reschedule_sync() do
+               setting
+             else
+               {:error, reason} -> Ytdarr.Repo.rollback(reason)
+             end
+           end) do
+        {:ok, setting} -> {:ok, setting}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def put_setting(key, value, type) when is_binary(key) do
     type = type || infer_type(value)
     attrs = %{key: key, value: wrap_value(value), type: type}
     upsert_app_setting(attrs)
+  end
+
+  @doc "Parses positive whole minutes or a duration with an m, h, or d suffix into minutes."
+  @spec parse_sync_interval(term()) :: {:ok, pos_integer()} | {:error, :invalid_sync_interval}
+  def parse_sync_interval(minutes) when is_integer(minutes) and minutes > 0 do
+    # Keep the resulting Oban timestamp within Calendar.ISO's supported year range.
+    maximum = DateTime.diff(~U[9999-12-31 23:59:59Z], DateTime.utc_now(), :minute)
+
+    if minutes <= maximum, do: {:ok, minutes}, else: {:error, :invalid_sync_interval}
+  end
+
+  def parse_sync_interval(value) when is_binary(value) do
+    case Regex.run(~r/\A([0-9]{1,10})([mhd])\z/i, String.trim(value), capture: :all_but_first) do
+      [amount, unit] ->
+        multiplier = %{"m" => 1, "h" => 60, "d" => 24 * 60}[String.downcase(unit)]
+        parse_sync_interval(String.to_integer(amount) * multiplier)
+
+      _ ->
+        {:error, :invalid_sync_interval}
+    end
+  end
+
+  def parse_sync_interval(_value), do: {:error, :invalid_sync_interval}
+
+  @doc "Returns the effective automatic sync interval in minutes, defaulting to 24 hours."
+  @spec sync_interval_minutes() :: pos_integer()
+  def sync_interval_minutes do
+    default = Catalog.default_value("sync_interval_minutes")
+
+    case parse_sync_interval(get_setting_value("sync_interval_minutes", default)) do
+      {:ok, minutes} -> minutes
+      {:error, _reason} -> default
+    end
   end
 
   @doc """

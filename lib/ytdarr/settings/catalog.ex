@@ -118,7 +118,7 @@ defmodule Ytdarr.Settings.Catalog do
       key: "sync_interval_minutes",
       type: :integer,
       category: :sync,
-      default: 60,
+      default: 24 * 60,
       sensitive?: false,
       effect_status: :next_schedule,
       env_var: nil,

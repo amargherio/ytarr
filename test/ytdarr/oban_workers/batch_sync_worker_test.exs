@@ -33,6 +33,31 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorkerTest do
       assert job.worker == "Ytdarr.ObanWorkers.BatchSyncWorker"
       assert job.scheduled_at != nil
     end
+
+    test "uses the configured interval and deduplicates a scheduled successor" do
+      assert {:ok, _setting} = Ytdarr.Settings.put_setting("sync_interval_minutes", "12m")
+      assert [job] = scheduled_batch_sync_jobs()
+
+      interval_seconds = DateTime.diff(job.scheduled_at, DateTime.utc_now(), :second)
+      assert interval_seconds in 718..720
+
+      assert {:ok, duplicate} = BatchSyncWorker.schedule_next_sync()
+      assert duplicate.id == job.id
+      assert length(scheduled_batch_sync_jobs()) == 1
+    end
+
+    test "replaces a pending job when the saved interval changes" do
+      assert {:ok, _setting} = Ytdarr.Settings.put_setting("sync_interval_minutes", "24h")
+      [previous] = scheduled_batch_sync_jobs()
+      assert previous.scheduled_at != nil
+
+      assert {:ok, _setting} = Ytdarr.Settings.put_setting("sync_interval_minutes", "12m")
+      assert Repo.get!(Oban.Job, previous.id).state == "cancelled"
+      [replacement] = scheduled_batch_sync_jobs()
+
+      interval_seconds = DateTime.diff(replacement.scheduled_at, DateTime.utc_now(), :second)
+      assert interval_seconds in 718..720
+    end
   end
 
   describe "perform/1" do
@@ -92,5 +117,13 @@ defmodule Ytdarr.ObanWorkers.BatchSyncWorkerTest do
     |> Enum.each(fn playlist ->
       {:ok, _} = Content.unmonitor_playlist(playlist)
     end)
+  end
+
+  defp scheduled_batch_sync_jobs do
+    Repo.all(
+      from(j in Oban.Job,
+        where: j.worker == "Ytdarr.ObanWorkers.BatchSyncWorker" and j.state == "scheduled"
+      )
+    )
   end
 end
